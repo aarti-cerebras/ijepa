@@ -74,3 +74,34 @@ class CosineWDSchedule(object):
             if ('WD_exclude' not in group) or not group['WD_exclude']:
                 group['weight_decay'] = new_wd
         return new_wd
+
+
+class StepLR(object):
+
+    def __init__(
+        self,
+        optimizer,
+        step_size,
+        start_lr,
+        gamma=0.1,
+        
+    ):
+        self.optimizer = optimizer
+        self.step_size = step_size
+        self.gamma = gamma
+        self._step = 0.
+        self.start_lr = start_lr
+
+
+    def step(self):
+        self._step += 1
+        
+        progress = self._step // self.step_size
+        new_lr = self.start_lr * self.gamma ** (progress)
+
+        for group in self.optimizer.param_groups:
+            group["lr"] = new_lr
+        
+        return new_lr
+
+        

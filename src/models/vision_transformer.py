@@ -398,7 +398,7 @@ class VisionTransformer(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x, masks=None):
+    def forward(self, x, masks=None, layer_idx_list=None):
         if masks is not None:
             if not isinstance(masks, list):
                 masks = [masks]
@@ -416,13 +416,16 @@ class VisionTransformer(nn.Module):
             x = apply_masks(x, masks)
 
         # -- fwd prop
+        hidden_states = []
         for i, blk in enumerate(self.blocks):
             x = blk(x)
+            if layer_idx_list is not None and i in layer_idx_list:
+                hidden_states.append(x)
 
         if self.norm is not None:
             x = self.norm(x)
 
-        return x
+        return x, hidden_states
 
     def interpolate_pos_encoding(self, x, pos_embed):
         npatch = x.shape[1] - 1

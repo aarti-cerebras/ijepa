@@ -1,0 +1,51 @@
+data:
+  batch_size: 4
+  crop_size: 224 # default 224
+  patch_size: 14
+  image_folder: imagenet1k_ilsvrc2012_1000samples/
+  num_workers: 10
+  pin_mem: true
+  root_path: /cb/cold/
+
+logging:
+  folder: /cb/home/aarti/ws/code/ws_repos/ijepa_src/vith_linprobe
+  write_tag: jepa_linearprobe
+meta:
+  copy_data: false
+  load_checkpoint: True
+  model_name: vit_huge
+  read_checkpoint: "IN1K-vit.h.14-300e_pth.tar"
+  use_bfloat16: true
+  key_load: "target_encoder"
+
+model: 
+  num_classes: 1000
+  in_features: 2560
+  use_batch_norm: True
+  batch_norm_kwargs: 
+    affine: False
+    num_features: 2560
+
+  layer_norm_kwargs: 
+    normalized_shape: [2560]
+  pooling_type: "avg_pool_patch_concat"  # avg_pool_patch_concat, avg_pool_patch
+
+  layer_idx_list: [30, 31]
+
+#   VIT_EMBED_DIMS = {
+#     'vit_tiny': 192, 12
+#     'vit_small': 384, 12
+#     'vit_base': 768, 12
+#     'vit_large': 1024, 24
+#     'vit_huge': 1280, 32
+#     'vit_giant': 1408, 40
+# }
+
+optimization:
+
+  epochs: 30
+  weight_decay: 0.4
+  ipe_scale: 1.0
+  lr: 0.001
+  step_size: 5
+  gamma: 0.1
