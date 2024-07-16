@@ -81,6 +81,7 @@ def main(args, resume_preempt=False):
     load_model = args['meta']['load_checkpoint'] or resume_preempt
     r_file = args['meta']['read_checkpoint']
     copy_data = args['meta']['copy_data']
+    key_load = args["meta"]["key_load"]
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
@@ -90,6 +91,7 @@ def main(args, resume_preempt=False):
     # -- DATA
     # --
     batch_size = args['data']['batch_size']
+    val_batch_size = args["data"]['val_batch_size']
     pin_mem = args['data']['pin_mem']
     num_workers = args['data']['num_workers']
     root_path = args['data']['root_path']
@@ -116,6 +118,8 @@ def main(args, resume_preempt=False):
 
     # -- LOGGING
     folder = args['logging']['folder']
+    if rank==0 and not os.path.exists(folder):
+        os.makedirs(folder)
     tag = args['logging']['write_tag']
 
     dump = os.path.join(folder, 'params-ijepa.yaml')
@@ -142,7 +146,8 @@ def main(args, resume_preempt=False):
         writer = SummaryWriter(folder)
     load_path = None
     if load_model:
-        load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
+        # load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
+        load_path = os.path.join(r_file) if r_file is not None else latest_path
 
     # -- make csv_logger
     csv_logger = CSVLogger(log_file,
@@ -191,7 +196,7 @@ def main(args, resume_preempt=False):
 
     _, unsupervised_loader_val, unsupervised_sampler_val = make_imagenet1k(
             transform=transform_val,
-            batch_size=batch_size,
+            batch_size=val_batch_size,
             collator=default_collate,
             pin_mem=pin_mem,
             training=False,
@@ -253,6 +258,14 @@ def main(args, resume_preempt=False):
     # -- TRAINING LOOP
     step = 0
     max_accuracy = 0.0
+    test_stats = evaluate(unsupervised_loader_val, encoder, linear_probe, layer_idx_list, device)
+    print(f"Accuracy of the network on the val dataset test images: {test_stats['acc1']:.1f}%")
+    max_accuracy = max(max_accuracy, test_stats["acc1"])
+    print(f'Max accuracy: {max_accuracy:.2f}%')
+
+    writer.add_scalar('perf/test_acc1', test_stats['acc1'], global_step=0)
+    writer.add_scalar('perf/test_acc5', test_stats['acc5'], global_step=0)
+    writer.add_scalar('perf/test_loss', test_stats['loss'], global_step=0)
     for epoch in range(start_epoch, num_epochs):
         logger.info('Epoch %d' % (epoch + 1))
 
@@ -308,6 +321,7 @@ def main(args, resume_preempt=False):
             (loss, _new_lr, grad_stats), etime = gpu_timer(train_step)
             if rank == 0:
                 writer.add_scalar("loss", loss, global_step=step)
+                writer.add_scalar("lr", _new_lr, global_step=step)
             if grad_stats is not None and rank == 0:
                 writer.add_scalar("grad_start_layer", grad_stats.first_layer, global_step=step)
                 writer.add_scalar("grad_end_layer", grad_stats.last_layer, global_step=step)
@@ -349,9 +363,9 @@ def main(args, resume_preempt=False):
         max_accuracy = max(max_accuracy, test_stats["acc1"])
         print(f'Max accuracy: {max_accuracy:.2f}%')
 
-        writer.add_scalar('perf/test_acc1', test_stats['acc1'], epoch)
-        writer.add_scalar('perf/test_acc5', test_stats['acc5'], epoch)
-        writer.add_scalar('perf/test_loss', test_stats['loss'], epoch)
+        writer.add_scalar('perf/test_acc1', test_stats['acc1'], global_step=epoch+1)
+        writer.add_scalar('perf/test_acc5', test_stats['acc5'], global_step=epoch+1)
+        writer.add_scalar('perf/test_loss', test_stats['loss'], global_step=epoch+1)
 
         encoder.train()
         linear_probe.train()
@@ -377,6 +391,8 @@ def evaluate(data_loader, model, linear_probe, layer_idx_list, device):
             _, output = model(images, None, layer_idx_list)
             output = linear_probe(output)
             loss = criterion(output, target)
+        
+        print(f"output: {output}")
 
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
@@ -388,8 +404,8 @@ def evaluate(data_loader, model, linear_probe, layer_idx_list, device):
 
         # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
-          .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
+    print('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}, iterations in val dataset: {len_dataset}'
+          .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss, len_dataset=len(data_loader)))
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 

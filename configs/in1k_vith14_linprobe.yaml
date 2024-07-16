@@ -1,20 +1,21 @@
 data:
-  batch_size: 4
+  batch_size: 4096
   crop_size: 224 # default 224
   patch_size: 14
-  image_folder: imagenet1k_ilsvrc2012_1000samples/
+  image_folder: imagenet1k_ilsvrc2012
   num_workers: 10
   pin_mem: true
-  root_path: /cb/cold/
+  root_path: /home/aarti/mlf/datasets
+  val_batch_size: 10
 
 logging:
-  folder: /cb/home/aarti/ws/code/ws_repos/ijepa_src/vith_linprobe
+  folder: /home/aarti/mlf/ijepa_fork/vith_linprobe
   write_tag: jepa_linearprobe
 meta:
   copy_data: false
   load_checkpoint: True
   model_name: vit_huge
-  read_checkpoint: "IN1K-vit.h.14-300e_pth.tar"
+  read_checkpoint: "IN1K-vit.h.14-300e.pth.tar"
   use_bfloat16: true
   key_load: "target_encoder"
 
