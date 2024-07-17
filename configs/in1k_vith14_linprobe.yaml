@@ -1,5 +1,5 @@
 data:
-  batch_size: 4096
+  batch_size: 2048
   crop_size: 224 # default 224
   patch_size: 14
   image_folder: imagenet1k_ilsvrc2012
@@ -15,7 +15,7 @@ meta:
   copy_data: false
   load_checkpoint: True
   model_name: vit_huge
-  read_checkpoint: "IN1K-vit.h.14-300e.pth.tar"
+  read_checkpoint: "/home/aarti/mlf/ijepa_fork/IN1K-vit.h.14-300e.pth.tar"
   use_bfloat16: true
   key_load: "target_encoder"
 
@@ -44,9 +44,9 @@ model:
 
 optimization:
 
-  epochs: 30
+  epochs: 50
   weight_decay: 0.4
   ipe_scale: 1.0
   lr: 0.001
-  step_size: 5
+  step_size: 15
   gamma: 0.1

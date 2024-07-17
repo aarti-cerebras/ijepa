@@ -26,6 +26,7 @@ import numpy as np
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
+import torch.distributed as dist
 
 import torch.multiprocessing as mp
 import torch.nn.functional as F
@@ -118,13 +119,16 @@ def main(args, resume_preempt=False):
 
     # -- LOGGING
     folder = args['logging']['folder']
-    if rank==0 and not os.path.exists(folder):
-        os.makedirs(folder)
     tag = args['logging']['write_tag']
 
-    dump = os.path.join(folder, 'params-ijepa.yaml')
-    with open(dump, 'w') as f:
-        yaml.dump(args, f)
+    # dump = os.path.join(folder, 'params-ijepa.yaml')
+    # with open(dump, 'w') as f:
+    #     yaml.dump(args, f)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+        dump = os.path.join(folder, 'params-ijepa.yaml')
+        with open(dump, 'w') as f:
+            yaml.dump(args, f)
     # ----------------------------------------------------------------------- #
 
     try:
@@ -139,6 +143,7 @@ def main(args, resume_preempt=False):
         logger.setLevel(logging.ERROR)
 
     # -- log/checkpointing paths
+    
     log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
@@ -258,14 +263,14 @@ def main(args, resume_preempt=False):
     # -- TRAINING LOOP
     step = 0
     max_accuracy = 0.0
-    test_stats = evaluate(unsupervised_loader_val, encoder, linear_probe, layer_idx_list, device)
-    print(f"Accuracy of the network on the val dataset test images: {test_stats['acc1']:.1f}%")
-    max_accuracy = max(max_accuracy, test_stats["acc1"])
-    print(f'Max accuracy: {max_accuracy:.2f}%')
+    # test_stats = evaluate(unsupervised_loader_val, encoder, linear_probe, layer_idx_list, device)
+    # print(f"Accuracy of the network on the val dataset test images: {test_stats['acc1']:.1f}%")
+    # max_accuracy = max(max_accuracy, test_stats["acc1"])
+    # print(f'Max accuracy: {max_accuracy:.2f}%')
 
-    writer.add_scalar('perf/test_acc1', test_stats['acc1'], global_step=0)
-    writer.add_scalar('perf/test_acc5', test_stats['acc5'], global_step=0)
-    writer.add_scalar('perf/test_loss', test_stats['loss'], global_step=0)
+    # writer.add_scalar('perf/test_acc1', test_stats['acc1'], global_step=0)
+    # writer.add_scalar('perf/test_acc5', test_stats['acc5'], global_step=0)
+    # writer.add_scalar('perf/test_loss', test_stats['loss'], global_step=0)
     for epoch in range(start_epoch, num_epochs):
         logger.info('Epoch %d' % (epoch + 1))
 
@@ -332,11 +337,11 @@ def main(args, resume_preempt=False):
             def log_stats():
                 csv_logger.log(epoch + 1, itr, loss, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    logger.info('[%d, %5d] loss: %.3f '
+                    logger.info('[%d, %5d, %d] loss: %.3f '
                                 '[wd: %.2e] [lr: %.2e] '
                                 '[mem: %.2e] '
                                 '(%.1f ms)'
-                                % (epoch + 1, itr,
+                                % (epoch + 1, itr, rank,
                                    loss_meter.avg,
                                    wd,
                                    _new_lr,
@@ -359,13 +364,16 @@ def main(args, resume_preempt=False):
         logger.info('avg. loss %.3f' % loss_meter.avg)
         save_checkpoint(epoch+1)
         test_stats = evaluate(unsupervised_loader_val, encoder, linear_probe, layer_idx_list, device)
-        print(f"Accuracy of the network on the val dataset test images: {test_stats['acc1']:.1f}%")
+       
         max_accuracy = max(max_accuracy, test_stats["acc1"])
-        print(f'Max accuracy: {max_accuracy:.2f}%')
-
-        writer.add_scalar('perf/test_acc1', test_stats['acc1'], global_step=epoch+1)
-        writer.add_scalar('perf/test_acc5', test_stats['acc5'], global_step=epoch+1)
-        writer.add_scalar('perf/test_loss', test_stats['loss'], global_step=epoch+1)
+    
+        if rank == 0:
+            print(f"Accuracy of the network on the val dataset test images at epoch {epoch+1}: {test_stats['acc1']:.1f}%")
+            print(f'Max accuracy so far at epoch {epoch + 1}: {max_accuracy:.2f}%')
+            writer.add_scalar('perf/test_acc1', test_stats['acc1'], global_step=epoch+1)
+            writer.add_scalar('perf/test_acc5', test_stats['acc5'], global_step=epoch+1)
+            writer.add_scalar('perf/test_loss', test_stats['loss'], global_step=epoch+1)
+            writer.add_scalar('perf/max_accuracy_so_far', max_accuracy, global_step=epoch+1)
 
         encoder.train()
         linear_probe.train()
@@ -392,7 +400,7 @@ def evaluate(data_loader, model, linear_probe, layer_idx_list, device):
             output = linear_probe(output)
             loss = criterion(output, target)
         
-        print(f"output: {output}")
+        # print(f"output: {output}")
 
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
