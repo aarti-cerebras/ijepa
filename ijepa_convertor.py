@@ -1,13 +1,15 @@
 import torch
 import re
 
+
 def convert_vit(src_state_dict, tgt_format="monolith", prefix=""):
     mapping_mono_src = {
         "encoder.transformer_encoder.layers": "module.blocks",
-        "ffn.ffn.0": "mlp.fc1",
-        "ffn.ffn.1": "mlp.fc2",
-        "embedding_layer.linear_proj": "patch_embed.proj",
-        "embedding_layer.position_embeddings": "pos_embed",
+        "ffn.ffn.0.linear_layer": "mlp.fc1",
+        "ffn.ffn.1.linear_layer": "mlp.fc2",
+        "embedding_layer.linear_proj": "module.patch_embed.proj",
+        "embedding_layer.position_embeddings": "module.pos_embed",
+        "encoder.transformer_encoder.norm": "module.norm"
     }
 
     mapping_src_mono = {v:k for k, v in mapping_mono_src.items()}
@@ -74,10 +76,13 @@ def convert_vit(src_state_dict, tgt_format="monolith", prefix=""):
 def convert_predictor(src_state_dict, tgt_format="monolith", prefix=""):
     mapping_mono_src = {
         "encoder.transformer_encoder.layers": "module.predictor_blocks",
-        "ffn.ffn.0": "mlp.fc1",
-        "ffn.ffn.1": "mlp.fc2",
-        "embedding_layer.linear_proj": "patch_embed.proj",
-        "embedding_layer.position_embeddings": "pos_embed"
+        "ffn.ffn.0.linear_layer": "mlp.fc1",
+        "ffn.ffn.1.linear_layer": "mlp.fc2",
+        "encoder.transformer_encoder.norm": "module.predictor_norm",
+        "predictor_initial_projection": "module.predictor_embed",
+        "position_embeddings": "module.predictor_pos_embed",
+        "predictor_final_projection": "module.predictor_proj",
+        "mask_token": "module.mask_token",
     }
 
     mapping_src_mono = {v:k for k, v in mapping_mono_src.items()}
@@ -93,13 +98,8 @@ def convert_predictor(src_state_dict, tgt_format="monolith", prefix=""):
             out_key = out_key.replace(src_key, tgt_key)
 
         out_key = prefix + out_key
-        if "embedding_layer.position_embeddings" in out_key or "pos_embed" in out_key:
-            if tgt_format == "src":
-                target_state_dict[out_key] = val.unsqueeze(0)
-            elif tgt_format == "monolith":
-                target_state_dict[out_key] = val.squeeze()
-        else:
-            target_state_dict[out_key] = val
+
+        target_state_dict[out_key] = val
         
         print(f"matched {k}: {out_key}")
     
@@ -174,7 +174,7 @@ if __name__ == "__main__":
     src_ckpt_path = "/cb/cold/aarti/ijepa/IN1K-vit.h.14-300e.pth.tar"
     convert_ijepa_checkpoint(src_ckpt_path, convert_to="monolith")
 
-
+    print(f"-------------------")
     src_ckpt_path = "/cb/cold/aarti/ijepa/ijepa_convert_to_monolith.mdl"
     convert_ijepa_checkpoint(src_ckpt_path, convert_to="src")
 
@@ -194,6 +194,6 @@ if __name__ == "__main__":
             is_eq = torch.equal(orig_val, conv_val)
 
             if not is_eq:
-                print(f"WARNING --- NOT EQUAL: {k}/{dict_k}")
+                raise ValueError(f"WARNING --- NOT EQUAL: {k}/{dict_k}")
             else:
                 print(f"EQUAL: {k}/{dict_k}")
