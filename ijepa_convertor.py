@@ -181,35 +181,19 @@ if __name__ == "__main__":
     conv = torch.load("/cb/cold/aarti/ijepa/ijepa_convert_to_src.mdl")
     orig = torch.load("/cb/cold/aarti/ijepa/IN1K-vit.h.14-300e.pth.tar", map_location=torch.device('cpu'))
 
-    for k, val in conv["encoder"].items():
-        is_eq = torch.equal(val, orig['encoder'][k])
-        if not is_eq:
-            print(orig['encoder'][k].shape, val.shape)
+    main_keys = ["encoder", "target_encoder", "predictor"]
 
-    for k, val in orig["encoder"].items():
-        is_eq = torch.equal(val, conv['encoder'][k])
-        if not is_eq:
-            print(conv['encoder'][k].shape, val.shape)
+    for k in main_keys:
+        orig_dict = orig[k]
+        conv_dict = conv[k]
 
-    for k, val in conv["target_encoder"].items():
-        is_eq = torch.equal(val, orig['target_encoder'][k])
-        if not is_eq:
-            print(orig['target_encoder'][k].shape, val.shape)
+        assert len(orig_dict.keys()) == len(conv_dict.keys()), f"num_keys mismatch for {k}"
 
-    for k, val in orig["target_encoder"].items():
-        is_eq = torch.equal(val, conv['target_encoder'][k])
-        if not is_eq:
-            print(conv['target_encoder'][k].shape, val.shape)
+        for dict_k, orig_val in orig_dict.items():
+            conv_val = conv_dict[dict_k]
+            is_eq = torch.equal(orig_val, conv_val)
 
-    for k, val in conv["predictor"].items():
-        is_eq = torch.equal(val, orig['predictor'][k])
-        if not is_eq:
-            print(orig['predictor'][k].shape, val.shape)
-
-    for k, val in orig["predictor"].items():
-        is_eq = torch.equal(val, conv['predictor'][k])
-        if not is_eq:
-            print(conv['predictor'][k].shape, val.shape)
-
-
-
+            if not is_eq:
+                print(f"WARNING --- NOT EQUAL: {k}/{dict_k}")
+            else:
+                print(f"EQUAL: {k}/{dict_k}")

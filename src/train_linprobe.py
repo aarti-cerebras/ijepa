@@ -241,8 +241,14 @@ def main(args, resume_preempt=False):
             opt=optimizer,
             scaler=scaler,
             key_load=key_load)
+
+        logger.info(f"here:  start_epoch: {start_epoch}, start_epoch*ipe: {start_epoch*ipe}")
+
+        # This is only triggered when we load from a linear probing ckpt.
+        # When a pretrained ckpt is loaded, an Exception is triggered which sets start_epoch to 0
+        # Exception is valid since we do not want to load the optimizer states 
+        # In other words, when loading from pretrained ckpt, we start with the correct value of LR
         for _ in range(start_epoch*ipe):
-            logger.info(f"here, {start_epoch*ipe}")
             scheduler.step()
 
     def save_checkpoint(epoch):
@@ -414,9 +420,7 @@ def evaluate(data_loader, model, linear_probe, layer_idx_list, device):
 
         # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}, iterations in val dataset: {len_dataset}'
-          .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss, len_dataset=len(data_loader)))
-
+    
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 

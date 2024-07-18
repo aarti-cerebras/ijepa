@@ -29,6 +29,7 @@ def load_checkpoint(
     key_load="target_encoder",
 ):
     try:
+        logger.info(f'read-path: {r_path}')
         checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
         epoch = checkpoint['epoch']
 
@@ -36,21 +37,16 @@ def load_checkpoint(
         msg = model.load_state_dict(pretrained_dict_load)
         logger.info(f'loaded pretrained {key_load} from epoch {epoch} with msg: {msg}')
 
-
-
         if "linear_probe" in checkpoint:
             dict_load = checkpoint["linear_probe"]
             msg = linear_probe.load_state_dict(dict_load)
             logger.info(f'loaded pretrained `linear_probe` from epoch {epoch} with msg: {msg}')
-
-
 
         # -- loading optimizer
         opt.load_state_dict(checkpoint['opt'])
         if scaler is not None:
             scaler.load_state_dict(checkpoint['scaler'])
         logger.info(f'loaded optimizers from epoch {epoch}')
-        logger.info(f'read-path: {r_path}')
         del checkpoint
 
     except Exception as e:
