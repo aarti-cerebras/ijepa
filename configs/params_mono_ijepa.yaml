@@ -1,0 +1,249 @@
+train_input: &train_input_params
+  # batch_size: 2048  # original paper bsz
+  # CABE MBS=584 for SDR
+  # CABE MBS=490 for FYN
+  batch_size: 490
+  micro_batch_size: 490
+  shuffle: True
+  shuffle_seed: 1456354
+  num_workers: 10
+  prefetch_factor: 3
+  
+  dataset: 
+    name: "Imagenet"
+    init_params: 
+      # root: "/cb/ml/computer_vision/datasets/imagenet/imagenet1k_ilsvrc2012"
+      root: "/cg3-store/cerebras/datasets/cv/imagenet/imagenet1k_ilsvrc2012"
+      split: "train"
+
+  # has two accessible keys: .output and .model
+  ssl_transform:
+    name: MultiBlockMaskedContextImageTransform
+    init_params: 
+      image_size: [224, 224]
+      patch_size: [14, 14]
+      encoder_mask_scale: [0.85, 1.0]
+      predictor_mask_scale: [0.15, 0.2]
+      predictor_aspect_ratio: [0.75, 1.5]
+      num_encoder_masks: 1
+      num_predictor_masks: 4
+      min_mask_patches: 10
+      allow_overlap: False
+      transform:
+        - name: "random_resized_crop"
+          size: [224, 224]
+          scale: [0.3, 1.0]
+        # - name: "random_horizontal_flip"
+        #   p: 0.5
+        # - name: "color_jitter_with_prob"
+        #   brightness: 0.0
+        #   contrast: 0.0
+        #   saturation: 0.0
+        #   hue: 0.0
+        #   p: 0.8
+        # - name: "random_gray_scale"
+        #   p: 0.2
+        # - name: "random_gaussian_blur_random_radius"
+        #   p: 0.5
+        #   radius_min: 0.1
+        #   radius_max: 2.0
+        - name: "to_tensor"
+        - name: "normalize"
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]
+
+eval_input: 
+  <<: *train_input_params
+  dataset:
+    init_params:
+      split: "val"
+
+
+# ALL output structure: 
+#    (a)list of (b)list of (c)lists
+#    len(a) = len(category) where category one of `image_model_trunks`, `heads`, `losses`
+#    len(b) = len(forward_args)
+#    len(c) = num_outputs from model per forward pass
+# For example: 
+#  output = image_model_trunks.model[i].forward(image_model_trunks.forward_args[j])
+# "image_model_trunks.output(i,j,k)" = output[k]
+# 
+#  In case of this yaml: `"image_model_trunks.output(1,0,0)"`
+#  `"image_model_trunks.output(1,0,0)"`
+#  output at index 0 
+# of the IJEPATargetEncoder(=0) 
+# with forward_args[0] passed as inputs to forward fcn 
+
+model:
+  mixed_precision: True
+  fp16_type: "bfloat16"
+
+  # has two accessible keys: .output and .model
+  image_model_trunks: 
+    # context_encoder : model_index = 0
+    - 
+      name: "IJEPAContextEncoder"
+      # anything to be passed to class constructor
+      init_params: &context_encoder_params
+        # Embedding
+        position_embedding_type: "fixed"
+        embedding_dropout_rate: 0.0
+        hidden_size: 1280
+        use_post_embed_layer_norm: False
+        use_embed_proj_bias: True
+        position_embedding_initializer:
+          name: "truncated_normal"
+          std: 0.02
+          a: -2.0
+          b: 2.0
+
+        # Encoder
+        num_hidden_layers: 32
+        layer_norm_epsilon: 1.0e-6
+        # Encoder Attn
+        num_heads: 16
+        attention_type: "scaled_dot_product"
+        attention_softmax_fp32: True
+        dropout_rate: 0.0
+        nonlinearity: "gelu"
+        attention_dropout_rate: 0.0
+        use_projection_bias_in_attention: True
+        use_ffn_bias_in_attention: True
+        # Encoder ffn
+        filter_size: 5120
+        use_ffn_bias: True
+        # Task-specific
+        initializer_range: 0.02
+        norm_first: True
+        default_initializer:
+          name: "truncated_normal"
+          std: 0.02
+          a: -2.0
+          b: 2.0
+        # vision related params
+        image_size: [224, 224]
+        num_channels: 3
+        patch_size: [14, 14]
+        use_conv_patchified_embedding: True
+        use_encoder_pooler_layer: False
+        prepend_cls_token: False
+      # anything to be passed to forward pass
+      forward_args: [["ssl_transform.output('image')", null, "ssl_transform.output('encoder_mask_idx')", "ssl_transform.output('num_valid_mask_encoder')"]]
+      stop_grad: False # runs this model under `torch.no_grad` if True
+
+    # target_encoder : model_index = 1
+    -  
+      name: "IJEPATargetEncoder"
+      init_params: 
+        <<: *context_encoder_params
+      forward_args: [["ssl_transform.output('image')", null, "ssl_transform.output('predictor_mask_idx')", "ssl_transform.output('encoder_mask_idx')"]]
+      stop_grad: True  # runs this model under `torch.no_grad` if True
+  
+  # has two accessible keys: .output and .model
+  heads:
+    - 
+      name: "IJEPAPredictor"
+      init_params: 
+        num_patches: [16, 16]
+        projection_dim: 384
+        hidden_size: 1280
+        # Encoder
+        num_hidden_layers: 12
+        layer_norm_epsilon: 1.0e-6
+        # Encoder Attn
+        num_heads: 12
+        attention_module: "aiayn_attention"
+        attention_type: "scaled_dot_product"
+        attention_softmax_fp32: True
+        dropout_rate: 0.0
+        nonlinearity: "gelu"
+        attention_dropout_rate: 0.0
+        use_projection_bias_in_attention: True
+        use_ffn_bias_in_attention: True
+        # Encoder ffn
+        filter_size: 1536
+        use_ffn_bias: True
+        # Task-specific
+        use_final_layer_norm: True
+        initializer_range: 0.02
+        default_initializer:
+          name: "truncated_normal"
+          std: 0.02
+          a: -2.0
+          b: 2.0
+        projection_initializer: null
+        attention_initializer: null
+        ffn_initializer: null
+        norm_first: True
+        prepend_cls_token: False
+        # BEGIN_CEREBRAS_ONLY
+        layerscale_value: null
+        stochastic_depth_drop_prob: 0.0
+        stochastic_depth_mode: "batch"
+        # END_CEREBRAS_ONLY
+
+      forward_args: [["image_model_trunks.output(0,0,0)", "ssl_transform.output('encoder_mask_idx')", "ssl_transform.output('predictor_mask_idx')", "ssl_transform.output('num_valid_mask_encoder')", "ssl_transform.output('num_valid_mask_predictor')"]]
+      stop_grad: False
+
+  # has two accessible keys: .output and .model
+  losses:
+    -
+      name: "MaskedSmoothL1Loss"
+      init_params:
+        reduction: "mean"
+        beta: 1.0
+      forward_args: [["heads.output(0,0,0)", "image_model_trunks.output(1,0,0)", "ssl_transform.output('loss_mask')"]]
+      stop_grad: False
+
+  copy_init_weights:
+    - 
+      source: "image_model_trunks.model(0)"
+      target: "image_model_trunks.model(1)"
+
+  ema:
+    - 
+      # target_model = alpha * target_model + (1- alpha) * source_model
+      source: "image_model_trunks.model(0)"  # context encoder
+      target: "image_model_trunks.model(1)"  # target encoder
+      scheduler_name: "linear"
+      scheduler_params:
+        ema_decay_start: 0.996
+        ema_decay_end: 1.0
+        # TODO: handle copy max_steps from runconfig to total_steps
+        total_steps: 784388
+
+
+optimizer:
+  optimizer_type: "AdamW"
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  weight_decay: 0.04
+  max_gradient_norm: 1.0
+  correct_bias: True
+  learning_rate:
+    - scheduler: "Linear"
+      initial_learning_rate: 0.0002
+      end_learning_rate: 0.001
+      total_iters: 104586
+    - scheduler: "CosineAnnealing"
+      initial_learning_rate: 0.001
+      eta_min: 1.0e-6
+      T_max: 679802
+  log_summaries: True
+  loss_scaling_factor: 1.0
+  
+runconfig:
+  max_steps: 784388 # 300 epochs of ~1,281,167 images
+  log_steps: 1
+  checkpoint_steps: 5000
+  eval_steps: 1000
+  save_initial_checkpoint: True
+  seed: 1
+  eval_frequency: 1000
+
+wandb:
+  project: ijepa_long_cg3
+  run_name: ijepa_vith14_im224_lr1e3_bsz490_gradclip
+  run_id: ijepa_vith14_im224_lr1e3_bsz490_gradclip
+  entity: multimodal-pod
+

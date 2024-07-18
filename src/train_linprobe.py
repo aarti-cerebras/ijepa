@@ -197,6 +197,7 @@ def main(args, resume_preempt=False):
             copy_data=copy_data,
             drop_last=True)
     ipe = len(unsupervised_loader)
+    logger.info(f"rank: {rank}, Len of dataloader: {ipe}")
 
 
     _, unsupervised_loader_val, unsupervised_sampler_val = make_imagenet1k(
@@ -241,6 +242,7 @@ def main(args, resume_preempt=False):
             scaler=scaler,
             key_load=key_load)
         for _ in range(start_epoch*ipe):
+            logger.info(f"here, {start_epoch*ipe}")
             scheduler.step()
 
     def save_checkpoint(epoch):
